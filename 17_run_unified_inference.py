@@ -9,15 +9,15 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
-# ================= 配置 =================
+# ================= Configuration =================
 DISTORTED_DIR = Path('./data/processed/Compound')
 RESTORED_DIR = Path('./data/restored/Compound')
 MODEL_PATH = './restoration_unified_resnet.pth'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE = 32 # 批量处理更快
-# =======================================
+BATCH_SIZE = 32 # Batch processing is faster
+# ===============================================
 
-# --- ResUNet 定义 (必须与训练一致) ---
+# --- ResUNet Definition (Must match training) ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
@@ -55,25 +55,25 @@ class ResUNet(nn.Module):
         return self.final(d1)
 
 def run_inference():
-    print("加载统一修复模型...")
+    print("Loading unified restoration model...")
     model = ResUNet().to(DEVICE)
     if not Path(MODEL_PATH).exists():
-        print(f"错误: 找不到模型 {MODEL_PATH}")
+        print(f"Error: Model not found {MODEL_PATH}")
         return
     model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
     model.eval()
 
     transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
     
-    # 获取所有文件
+    # Get all files
     files = list(DISTORTED_DIR.glob('*/*.png'))
-    print(f"开始修复 {len(files)} 张图片...")
+    print(f"Starting restoration of {len(files)} images...")
     
-    # 批量处理逻辑
+    # Batch processing logic
     for i in tqdm(range(0, len(files), BATCH_SIZE)):
         batch_files = files[i : i+BATCH_SIZE]
         
-        # 准备 Batch
+        # Prepare Batch
         inputs = []
         for p in batch_files:
             img = Image.open(p).convert('RGB')
@@ -85,20 +85,20 @@ def run_inference():
             output_tensor = model(input_tensor)
             output_tensor = torch.clamp(output_tensor, 0, 1)
         
-        # 保存 Batch
+        # Save Batch
         for idx, file_path in enumerate(batch_files):
             # Tensor -> Numpy -> BGR
             out_img = output_tensor[idx].cpu().permute(1, 2, 0).numpy()
             out_img = (out_img * 255).astype(np.uint8)
             out_bgr = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
             
-            # 路径计算
+            # Path calculation
             rel_path = file_path.relative_to(DISTORTED_DIR)
             save_path = RESTORED_DIR / rel_path
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(save_path), out_bgr)
 
-    print(f"修复完成！请检查: {RESTORED_DIR}")
+    print(f"Restoration complete! Please check: {RESTORED_DIR}")
 
 if __name__ == '__main__':
     run_inference()

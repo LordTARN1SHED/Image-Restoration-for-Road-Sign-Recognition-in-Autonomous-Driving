@@ -5,15 +5,15 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
-# 配置路径
+# Configure paths
 SRC_DIR = Path('./data/gtsrb/GTSRB/Training')
 DST_DIR = Path('./data/processed/Noise')
 
 def add_gaussian_noise(image, mean=0, var=0.01):
     """
-    添加高斯噪声
-    image: 原始图片 (0-255)
-    var: 方差，控制噪声强度
+    Add Gaussian noise
+    image: Original image (0-255)
+    var: Variance, controls noise intensity
     """
     image = np.array(image / 255, dtype=float)
     noise = np.random.normal(mean, var ** 0.5, image.shape)
@@ -28,32 +28,32 @@ def add_gaussian_noise(image, mean=0, var=0.01):
 
 def process():
     if not SRC_DIR.exists():
-        print(f"错误：找不到源数据目录 {SRC_DIR}")
+        print(f"Error: Source data directory {SRC_DIR} not found")
         return
 
-    # 遍历所有类别文件夹
-    img_paths = list(SRC_DIR.glob('*/*.ppm')) # GTSRB原格式是.ppm
-    print(f"发现 {len(img_paths)} 张图片，开始生成噪点数据...")
+    # Iterate through all class folders
+    img_paths = list(SRC_DIR.glob('*/*.ppm')) # GTSRB original format is .ppm
+    print(f"Found {len(img_paths)} images, starting to generate noise data...")
 
     for img_path in tqdm(img_paths):
-        # 读取图片
+        # Read image
         img = cv2.imread(str(img_path))
         if img is None: continue
 
-        # 添加噪声
-        noisy_img = add_gaussian_noise(img, var=0.02) # 调整var可以改变噪声大小
+        # Add noise
+        noisy_img = add_gaussian_noise(img, var=0.02) # Adjust 'var' to change noise magnitude
 
-        # 保持目录结构
+        # Maintain directory structure
         relative_path = img_path.relative_to(SRC_DIR)
         save_path = DST_DIR / relative_path
         
-        # 创建对应的子文件夹
+        # Create corresponding subfolders
         save_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 保存 (转为png通用格式，或者保持ppm)
+        # Save (convert to png common format, or keep ppm)
         cv2.imwrite(str(save_path), noisy_img)
 
-    print(f"处理完成！噪点数据集保存在: {DST_DIR}")
+    print(f"Processing complete! Noise dataset saved at: {DST_DIR}")
 
 if __name__ == '__main__':
     process()

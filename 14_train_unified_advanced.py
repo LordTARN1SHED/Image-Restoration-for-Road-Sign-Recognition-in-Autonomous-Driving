@@ -11,44 +11,44 @@ import random
 from pathlib import Path
 from tqdm import tqdm
 
-# ================= 高级配置 =================
-# 这个模型要处理所有情况，所以Epoch要多一点，BatchSize看显存调整
+# ================= Advanced Configuration =================
+# Since this model handles all scenarios, epochs should be slightly higher. Adjust BatchSize based on VRAM.
 BATCH_SIZE = 16 
 EPOCHS = 25 
-LEARNING_RATE = 0.0002 # 较小的LR，配合AdamW，训练更稳定
+LEARNING_RATE = 0.0002 # Smaller LR with AdamW for more stable training
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SAVE_MODEL_PATH = './restoration_unified_resnet.pth'
 CLEAN_DIR = Path('./data/gtsrb/GTSRB/Training')
 
-# 混合畸变的概率配置
+# Probability configuration for mixed distortions
 PROB_NOISE = 0.5
 PROB_BLUR = 0.5
 PROB_FOG = 0.5
-# ===========================================
+# ==========================================================
 
-# --- 1. 动态畸变生成器 (核心升级) ---
-# 这里的代码直接复用了之前的逻辑，但变成了随机触发
+# --- 1. Dynamic Distortion Generator (Core Upgrade) ---
+# The logic is reused from before but triggered randomly
 def apply_random_distortions(image_np):
     """
-    输入: 0-255 RGB Numpy
-    输出: 0-255 RGB Numpy (混合畸变)
+    Input: 0-255 RGB Numpy
+    Output: 0-255 RGB Numpy (Mixed Distortion)
     """
     out = image_np.astype(np.float32) / 255.0
     
-    # 随机施加 Fog
+    # Randomly apply Fog
     if random.random() < PROB_FOG:
-        intensity = random.uniform(0.3, 0.7) # 混合时不要太浓，否则信息丢失太多
+        intensity = random.uniform(0.3, 0.7) # Not too thick when mixing, otherwise too much info is lost
         A = 0.9
         t = 1.0 - intensity * random.uniform(0.8, 1.2)
         out = out * t + A * (1 - t)
     
-    # 随机施加 Noise (必须Clip，否则下一层会溢出)
+    # Randomly apply Noise (Must clip, otherwise next layer overflows)
     if random.random() < PROB_NOISE:
         var = random.uniform(0.01, 0.03) 
         noise = np.random.normal(0, var ** 0.5, out.shape)
         out = out + noise
         
-    # 随机施加 Blur (转回 uint8 处理再转回来，方便用cv2)
+    # Randomly apply Blur (Convert back to uint8 for cv2 processing, then convert back)
     if random.random() < PROB_BLUR:
         temp_img = np.clip(out * 255, 0, 255).astype(np.uint8)
         degree = random.randint(5, 15)
@@ -67,7 +67,7 @@ class DynamicDistortionDataset(Dataset):
     def __init__(self, clean_root, transform=None):
         self.clean_files = sorted(list(clean_root.glob('*/*.ppm')))
         self.transform = transform
-        print(f"载入训练数据: {len(self.clean_files)} 张图片")
+        print(f"Loading training data: {len(self.clean_files)} images")
 
     def __len__(self):
         return len(self.clean_files)
@@ -75,14 +75,14 @@ class DynamicDistortionDataset(Dataset):
     def __getitem__(self, idx):
         c_path = self.clean_files[idx]
         
-        # 读取 Clean
+        # Read Clean Image
         clean_img_cv = cv2.imread(str(c_path))
         clean_img_cv = cv2.cvtColor(clean_img_cv, cv2.COLOR_BGR2RGB)
         
-        # 实时生成 Bad (Dynamic Generation)
+        # Real-time Generation of Bad Image (Dynamic Generation)
         bad_img_cv = apply_random_distortions(clean_img_cv)
         
-        # 转 PIL 以便使用 torchvision transforms
+        # Convert to PIL for torchvision transforms
         clean_pil = Image.fromarray(clean_img_cv)
         bad_pil = Image.fromarray(bad_img_cv)
         
@@ -92,18 +92,18 @@ class DynamicDistortionDataset(Dataset):
             
         return bad_tensor, clean_tensor
 
-# --- 2. 模型升级: ResUNet (Residual U-Net) ---
+# --- 2. Model Upgrade: ResUNet (Residual U-Net) ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_c, out_c, 3, padding=1),
             nn.BatchNorm2d(out_c),
-            nn.PReLU(), # PReLU 比 ReLU 更好
+            nn.PReLU(), # PReLU is better than ReLU
             nn.Conv2d(out_c, out_c, 3, padding=1),
             nn.BatchNorm2d(out_c)
         )
-        # 如果通道数变了，Shortcut也要变
+        # If channel number changes, Shortcut must change too
         self.shortcut = nn.Sequential()
         if in_c != out_c:
             self.shortcut = nn.Sequential(
@@ -129,7 +129,7 @@ class ResUNet(nn.Module):
         self.res3 = ResidualBlock(128, 256)
         self.pool3 = nn.MaxPool2d(2, 2)
         
-        # Bottleneck (更深)
+        # Bottleneck (Deeper)
         self.bottleneck = nn.Sequential(
             ResidualBlock(256, 512),
             ResidualBlock(512, 512),
@@ -165,7 +165,7 @@ class ResUNet(nn.Module):
         
         # Dec
         d3 = self.up3(b)
-        # Skip connection 这里的尺寸可能会因为Padding有细微差别，插值对其
+        # Skip connection dimensions might differ slightly due to padding, align via interpolation
         if d3.size() != r3.size():
             d3 = torch.nn.functional.interpolate(d3, size=r3.shape[2:])
         d3 = torch.cat((d3, r3), dim=1)
@@ -185,7 +185,7 @@ class ResUNet(nn.Module):
         
         return self.final(d1)
 
-# --- 3. Loss 升级: Perceptual Loss (复用) ---
+# --- 3. Loss Upgrade: Perceptual Loss (Reused) ---
 class VGGPerceptualLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -195,27 +195,27 @@ class VGGPerceptualLoss(nn.Module):
     def forward(self, x, y):
         return torch.mean((self.slice(x) - self.slice(y)) ** 2)
 
-# ================= 训练循环 =================
+# ================= Training Loop =================
 def train():
-    print("=== 开始训练 Unified ResUNet (Mixed Distortion) ===")
+    print("=== Starting Training Unified ResUNet (Mixed Distortion) ===")
     
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
     
-    # 使用动态数据集
+    # Use dynamic dataset
     dataset = DynamicDistortionDataset(CLEAN_DIR, transform=transform)
     train_size = int(0.95 * len(dataset))
     val_size = len(dataset) - train_size
     train_ds, val_ds = random_split(dataset, [train_size, val_size])
     
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=8) # 多线程生成很重要
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=8) # Multi-threading is important for generation
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
     
     model = ResUNet().to(DEVICE)
     
-    # 组合损失: L1 (像素准) + Perceptual (视觉准)
+    # Combined Loss: L1 (Pixel accuracy) + Perceptual (Visual accuracy)
     crit_l1 = nn.L1Loss()
     crit_perc = VGGPerceptualLoss().to(DEVICE)
     
@@ -228,7 +228,7 @@ def train():
         model.train()
         run_loss = 0.0
         
-        # 这里的 tqdm 会稍微慢一点，因为 CPU 在实时生成扭曲图
+        # tqdm here might be slightly slower because CPU is generating distorted images in real-time
         for bad, clean in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
             bad, clean = bad.to(DEVICE), clean.to(DEVICE)
             
@@ -238,7 +238,7 @@ def train():
             l_pix = crit_l1(out, clean)
             l_perc = crit_perc(out, clean)
             
-            # 0.1 的权重给 Perceptual 是为了平衡量级
+            # 0.1 weight for Perceptual is to balance the magnitude
             loss = l_pix + 0.1 * l_perc
             
             loss.backward()
@@ -249,7 +249,7 @@ def train():
         avg_loss = run_loss / len(train_loader)
         print(f"Train Loss: {avg_loss:.5f}")
         
-        # 验证
+        # Validation
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -265,7 +265,7 @@ def train():
         if val_avg < best_loss:
             best_loss = val_avg
             torch.save(model.state_dict(), SAVE_MODEL_PATH)
-            print("模型已保存 (Best Val)")
+            print("Model saved (Best Val)")
 
 if __name__ == '__main__':
     train()

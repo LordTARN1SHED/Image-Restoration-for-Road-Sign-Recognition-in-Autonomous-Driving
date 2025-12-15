@@ -7,31 +7,31 @@ from torch.utils.data import DataLoader, random_split
 import os
 from tqdm import tqdm
 
-# ================= 配置 =================
+# ================= Configuration =================
 BATCH_SIZE = 64
-EPOCHS = 10           # 跑10轮通常就够了
+EPOCHS = 10           # 10 epochs are usually enough
 LEARNING_RATE = 0.001
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DATA_DIR = './data/gtsrb/GTSRB/Training'
 SAVE_PATH = './vgg16_baseline.pth'
-# =======================================
+# ===============================================
 
 def train():
-    print(f"使用设备: {DEVICE}")
+    print(f"Using device: {DEVICE}")
 
-    # 1. 数据预处理
-    # VGG16 默认输入是 224x224，GTSRB图片大小不一，必须Resize
+    # 1. Data Preprocessing
+    # VGG16 default input is 224x224, GTSRB image sizes vary, must Resize
     data_transforms = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], # ImageNet 标准均值
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], # ImageNet standard mean
                              std=[0.229, 0.224, 0.225])
     ])
 
-    # 2. 加载数据集
+    # 2. Load Dataset
     full_dataset = datasets.ImageFolder(root=DATA_DIR, transform=data_transforms)
     
-    # 划分 80% 训练, 20% 验证
+    # Split 80% training, 20% validation
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
@@ -39,27 +39,27 @@ def train():
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
 
-    print(f"训练集数量: {len(train_dataset)}, 验证集数量: {len(val_dataset)}")
-    print(f"分类类别数: {len(full_dataset.classes)}")
+    print(f"Training set size: {len(train_dataset)}, Validation set size: {len(val_dataset)}")
+    print(f"Number of classes: {len(full_dataset.classes)}")
 
-    # 3. 定义模型 (VGG16)
-    # 使用预训练权重 (weights='DEFAULT') 加速收敛
+    # 3. Define Model (VGG16)
+    # Use pretrained weights (weights='DEFAULT') to accelerate convergence
     model = models.vgg16(weights='DEFAULT')
     
-    # 冻结前面的特征提取层 (可选，这里我们要微调，所以不完全冻结，但可以锁住前几层)
-    # 为了简单且利用你的4090算力，我们直接全参数微调，效果最好
+    # Freeze earlier feature extraction layers (optional, here we fine-tune, so we don't freeze completely, but could lock first few layers)
+    # For simplicity and utilizing your 4090 power, we use full parameter fine-tuning for best results
     
-    # 修改最后一层全连接层 (原本是1000类，改成43类)
+    # Modify the last fully connected layer (originally 1000 classes, changed to 43)
     num_ftrs = model.classifier[6].in_features
     model.classifier[6] = nn.Linear(num_ftrs, 43)
     
     model = model.to(DEVICE)
 
-    # 4. 定义损失函数和优化器
+    # 4. Define Loss Function and Optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9)
 
-    # 5. 训练循环
+    # 5. Training Loop
     best_acc = 0.0
 
     for epoch in range(EPOCHS):
@@ -111,13 +111,13 @@ def train():
         val_acc = val_correct / val_total
         print(f'Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}')
 
-        # 保存最好的模型
+        # Save the best model
         if val_acc > best_acc:
             best_acc = val_acc
             torch.save(model.state_dict(), SAVE_PATH)
-            print(f"模型已保存，当前最佳验证准确率: {best_acc:.4f}")
+            print(f"Model saved, current best val acc: {best_acc:.4f}")
 
-    print("训练完成！")
+    print("Training complete!")
 
 if __name__ == '__main__':
     train()

@@ -9,18 +9,18 @@ import matplotlib.pyplot as plt
 import random
 from pathlib import Path
 
-# ================= 配置区域 =================
-# 1. 选一张测试图 (建议选一张边缘清晰的，比如限速牌或禁止通行)
+# ================= Configuration Area =================
+# 1. Select a test image (Suggest picking one with clear edges, like a speed limit or no entry sign)
 SAMPLE_IMG_PATH = Path('./data/gtsrb/GTSRB/Training/00001/00025_00029.ppm')
 
-# 2. 模型路径
+# 2. Model Paths
 UNIFIED_MODEL_PATH = './restoration_unified_resnet.pth'
-VGG_MODEL_PATH = './vgg16_baseline.pth' # 如果没有这个，VGG评分可能不准，但流程能跑
+VGG_MODEL_PATH = './vgg16_baseline.pth' # If missing, VGG scoring might be inaccurate, but the pipeline will still run
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# ===========================================
+# ======================================================
 
-# --- 1. 定义网络结构 (必须与训练脚本 14_train_unified_advanced.py 完全一致) ---
+# --- 1. Define Network Structure (Must be exactly consistent with training script 14_train_unified_advanced.py) ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
@@ -89,25 +89,25 @@ class ResUNet(nn.Module):
         d1 = self.dec1(d1)
         return self.final(d1)
 
-# --- 2. 畸变工具函数 ---
+# --- 2. Distortion Utility Functions ---
 def make_compound_distortion(image_np):
     """
-    制造混合畸变：同时加上 噪点 + 模糊 + 雾
+    Create compound distortion: Simultaneously add Noise + Blur + Fog
     """
     img = image_np.astype(np.float32) / 255.0
     
-    # 1. 施加雾霾 (Fog)
+    # 1. Apply Fog
     intensity = 0.5 
     A = 0.9
     t = 1.0 - intensity
     img = img * t + A * (1 - t)
     
-    # 2. 施加噪点 (Noise)
+    # 2. Apply Noise
     noise = np.random.normal(0, 0.02 ** 0.5, img.shape)
     img = img + noise
     img = np.clip(img, 0, 1)
     
-    # 3. 施加模糊 (Blur) - 需要转回 uint8 处理再转回来
+    # 3. Apply Blur - Needs converting back to uint8 for processing then back again
     temp_img = (img * 255).astype(np.uint8)
     degree = 10
     angle = 45
@@ -117,11 +117,11 @@ def make_compound_distortion(image_np):
     kernel = kernel / degree
     temp_img = cv2.filter2D(temp_img, -1, kernel)
     
-    return temp_img # 返回 uint8 用于展示和输入
+    return temp_img # Return uint8 for display and input
 
-# --- 3. 辅助函数 ---
+# --- 3. Helper Functions ---
 def get_vgg_prediction(model, img_tensor):
-    """返回 VGG 的预测类别和置信度"""
+    """Return VGG predicted class and confidence"""
     with torch.no_grad():
         outputs = model(img_tensor)
         probabilities = torch.nn.functional.softmax(outputs, dim=1)
@@ -129,19 +129,19 @@ def get_vgg_prediction(model, img_tensor):
     return predicted.item(), confidence.item()
 
 def main():
-    print(f"=== 测试 Unified ResUNet (Compound Distortion) ===")
+    print(f"=== Testing Unified ResUNet (Compound Distortion) ===")
     
-    # 1. 加载模型
-    print("加载 Unified 修复模型...")
+    # 1. Load Model
+    print("Loading Unified restoration model...")
     if not Path(UNIFIED_MODEL_PATH).exists():
-        print(f"错误: 找不到模型文件 {UNIFIED_MODEL_PATH}，请先运行 14_train_unified_advanced.py")
+        print(f"Error: Model file not found {UNIFIED_MODEL_PATH}, please run 14_train_unified_advanced.py first")
         return
         
     restorer = ResUNet().to(DEVICE)
     restorer.load_state_dict(torch.load(UNIFIED_MODEL_PATH, map_location=DEVICE))
     restorer.eval()
     
-    print("加载 VGG16 裁判模型...")
+    print("Loading VGG16 referee model...")
     vgg = models.vgg16(weights='DEFAULT')
     num_ftrs = vgg.classifier[6].in_features
     vgg.classifier[6] = nn.Linear(num_ftrs, 43)
@@ -150,8 +150,8 @@ def main():
     vgg = vgg.to(DEVICE)
     vgg.eval()
 
-    # 2. 数据准备
-    # 需要两套 Transform: 一套给 U-Net (简单ToTensor)，一套给 VGG (Normalize)
+    # 2. Data Preparation
+    # Need two sets of Transforms: One for U-Net (Simple ToTensor), one for VGG (Normalize)
     trans_unet = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor()
@@ -162,33 +162,33 @@ def main():
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    # 读取原图
+    # Read original image
     if not SAMPLE_IMG_PATH.exists():
-        print("错误: 图片路径不存在")
+        print("Error: Image path does not exist")
         return
     
     original_cv = cv2.imread(str(SAMPLE_IMG_PATH))
     original_cv = cv2.cvtColor(original_cv, cv2.COLOR_BGR2RGB) # RGB Uint8
 
-    # 3. 生成数据: Clean -> Compound Bad
+    # 3. Generate Data: Clean -> Compound Bad
     bad_cv = make_compound_distortion(original_cv)
 
-    # 4. 执行修复 (Inference)
-    print("正在进行盲修复...")
-    # 坏图 -> Tensor -> Device
+    # 4. Execute Restoration (Inference)
+    print("Performing blind restoration...")
+    # Bad Image -> Tensor -> Device
     bad_pil = Image.fromarray(bad_cv)
     bad_tensor = trans_unet(bad_pil).unsqueeze(0).to(DEVICE)
     
     with torch.no_grad():
         restored_tensor = restorer(bad_tensor)
         
-    # 处理修复结果用于显示
+    # Process restoration results for display
     restored_tensor = torch.clamp(restored_tensor, 0, 1)
     restored_img = restored_tensor.squeeze().cpu().permute(1, 2, 0).numpy()
     restored_img_uint8 = (restored_img * 255).astype(np.uint8)
     restored_pil = Image.fromarray(restored_img_uint8)
 
-    # 5. VGG 评分
+    # 5. VGG Scoring
     # Clean
     clean_pil = Image.fromarray(original_cv)
     pred_c, conf_c = get_vgg_prediction(vgg, trans_vgg(clean_pil).unsqueeze(0).to(DEVICE))
@@ -199,8 +199,8 @@ def main():
     # Restored
     pred_r, conf_r = get_vgg_prediction(vgg, trans_vgg(restored_pil).unsqueeze(0).to(DEVICE))
 
-    # 6. 可视化对比
-    print("生成对比图...")
+    # 6. Visualization Comparison
+    print("Generating comparison plot...")
     plt.figure(figsize=(15, 6))
 
     # Clean
@@ -218,14 +218,14 @@ def main():
     # Restored
     ax3 = plt.subplot(1, 3, 3)
     ax3.imshow(restored_img_uint8)
-    # 根据置信度提升判断颜色
+    # Determine color based on confidence improvement
     color_r = 'green' if conf_r > 0.8 else ('orange' if conf_r > 0.5 else 'red')
     ax3.set_title(f"Unified Restored\n(Blind Repair)\nVGG Conf: {conf_r:.2f}", fontsize=14, color=color_r)
     ax3.axis('off')
 
     plt.tight_layout()
     plt.savefig('unified_model_test.png')
-    print("完成！结果已保存为 unified_model_test.png")
+    print("Done! Result saved as unified_model_test.png")
     plt.show()
 
 if __name__ == '__main__':

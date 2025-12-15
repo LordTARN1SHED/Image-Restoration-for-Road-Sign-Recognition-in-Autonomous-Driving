@@ -10,26 +10,26 @@ import random
 from pathlib import Path
 import os
 
-# ================= 配置区域 =================
-NUM_SAMPLES = 10  # 测试几张图？
+# ================= Configuration Area =================
+NUM_SAMPLES = 10  # How many images to test?
 CLEAN_DIR = Path('./data/gtsrb/GTSRB/Training')
-OUTPUT_DIR = Path('./pipeline_results') # 结果保存文件夹
+OUTPUT_DIR = Path('./pipeline_results') # Result save directory
 
-# 模型路径
+# Model Paths
 MODEL_PATHS = {
     'Noise': './restoration_noise.pth',
     'Blur':  './restoration_blur.pth',
     'Fog':   './restoration_fog.pth'
 }
 
-# 畸变叠加顺序: Blur -> Fog -> Noise
-# 修复执行顺序: Noise -> Fog -> Blur
+# Distortion superposition order: Blur -> Fog -> Noise
+# Restoration execution order: Noise -> Fog -> Blur
 RESTORATION_ORDER = ['Noise', 'Fog', 'Blur']
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# ===========================================
+# ======================================================
 
-# --- 1. 定义畸变函数 ---
+# --- 1. Define Distortion Functions ---
 def add_noise(image):
     img = image / 255.0
     noise = np.random.normal(0, 0.01 ** 0.5, img.shape) 
@@ -55,7 +55,7 @@ def add_fog(image):
     fog_img = img * t + A * (1 - t)
     return np.clip(fog_img * 255, 0, 255).astype(np.uint8)
 
-# --- 2. 定义模型结构 ---
+# --- 2. Define Model Structure ---
 class SimpleUNet(nn.Module):
     def __init__(self):
         super(SimpleUNet, self).__init__()
@@ -92,11 +92,11 @@ def get_vgg_prediction(model, img_tensor):
     return predicted.item(), confidence.item()
 
 def main():
-    # 创建输出目录
+    # Create output directory
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    # 1. 准备模型
-    print("正在加载模型...")
+    # 1. Prepare Models
+    print("Loading models...")
     restoration_models = {}
     for name in MODEL_PATHS:
         if Path(MODEL_PATHS[name]).exists():
@@ -105,7 +105,7 @@ def main():
             net.eval()
             restoration_models[name] = net
         else:
-            print(f"警告: 找不到模型 {MODEL_PATHS[name]}")
+            print(f"Warning: Model not found {MODEL_PATHS[name]}")
     
     vgg = models.vgg16(weights='DEFAULT')
     num_ftrs = vgg.classifier[6].in_features
@@ -125,32 +125,32 @@ def main():
         transforms.ToTensor()
     ])
 
-    # 2. 随机采样图片
+    # 2. Randomly Sample Images
     all_files = list(CLEAN_DIR.glob('*/*.ppm'))
     if len(all_files) < NUM_SAMPLES:
         selected_files = all_files
     else:
         selected_files = random.sample(all_files, NUM_SAMPLES)
     
-    print(f"已选中 {len(selected_files)} 张图片进行测试...\n")
+    print(f"Selected {len(selected_files)} images for testing...\n")
 
-    # 统计数据容器
+    # Statistics containers
     stats_clean_conf = []
     stats_bad_conf = []
     stats_restored_conf = []
 
-    # 3. 循环处理每一张图
+    # 3. Loop through each image
     for idx, img_path in enumerate(selected_files):
-        print(f"[{idx+1}/{NUM_SAMPLES}] 处理: {img_path.name}")
+        print(f"[{idx+1}/{NUM_SAMPLES}] Processing: {img_path.name}")
         
-        # 读取原图
+        # Read original image
         original_cv = cv2.imread(str(img_path))
         original_cv = cv2.cvtColor(original_cv, cv2.COLOR_BGR2RGB)
         
         history_images = [original_cv]
         history_titles = ["Original"]
         
-        # --- Phase 1: 叠加畸变 (Blur -> Fog -> Noise) ---
+        # --- Phase 1: Superimpose Distortions (Blur -> Fog -> Noise) ---
         current_img = original_cv.copy()
         
         # Blur
@@ -168,10 +168,10 @@ def main():
         history_images.append(current_img)
         history_titles.append("+ Noise (Input)")
         
-        # 备份坏图用于记录 VGG 分数
+        # Backup bad image for VGG scoring
         bad_img_for_stats = current_img.copy()
 
-        # --- Phase 2: 级联修复 (Noise -> Fog -> Blur) ---
+        # --- Phase 2: Cascade Restoration (Noise -> Fog -> Blur) ---
         tensor_img = preprocess_unet(Image.fromarray(current_img)).unsqueeze(0).to(DEVICE)
         
         for model_name in RESTORATION_ORDER:
@@ -180,7 +180,7 @@ def main():
                 with torch.no_grad():
                     tensor_img = net(tensor_img)
                     
-                    # 可视化保存
+                    # Visualization saving
                     vis_tensor = torch.clamp(tensor_img, 0, 1)
                     vis_img = vis_tensor.squeeze().cpu().permute(1, 2, 0).numpy()
                     vis_img = (vis_img * 255).astype(np.uint8)
@@ -188,10 +188,10 @@ def main():
                     history_images.append(vis_img)
                     history_titles.append(f"After {model_name}")
 
-        # --- Phase 3: VGG 评分与保存图片 ---
+        # --- Phase 3: VGG Scoring and Saving Images ---
         plt.figure(figsize=(20, 8))
         
-        # 临时变量记录这张图的三个关键分数
+        # Temp variables to record three key scores for this image
         conf_c, conf_b, conf_r = 0, 0, 0
 
         for i, (img, title) in enumerate(zip(history_images, history_titles)):
@@ -200,7 +200,7 @@ def main():
             
             pred_cls, conf = get_vgg_prediction(vgg, vgg_input)
             
-            # 记录关键节点的置信度
+            # Record confidence at key nodes
             if i == 0: conf_c = conf          # Original
             if i == 3: conf_b = conf          # + Noise (Final Bad)
             if i == 6: conf_r = conf          # Final Restored
@@ -211,24 +211,24 @@ def main():
             ax.set_title(f"{title}\nPred: {pred_cls} | Conf: {conf:.2f}", color=color, fontsize=12, fontweight='bold')
             ax.axis('off')
 
-        # 保存图片
+        # Save image
         save_path = OUTPUT_DIR / f'pipeline_sample_{idx+1}.png'
         plt.tight_layout()
         plt.savefig(str(save_path))
-        plt.close() # 关闭画板释放内存
+        plt.close() # Close figure to free memory
         
-        # 添加到统计
+        # Add to statistics
         stats_clean_conf.append(conf_c)
         stats_bad_conf.append(conf_b)
         stats_restored_conf.append(conf_r)
 
-    # 4. 打印最终统计报告
+    # 4. Print Final Statistical Report
     avg_clean = sum(stats_clean_conf) / len(stats_clean_conf)
     avg_bad = sum(stats_bad_conf) / len(stats_bad_conf)
     avg_restored = sum(stats_restored_conf) / len(stats_restored_conf)
 
     print("\n" + "="*40)
-    print(f"最终测试报告 (共 {NUM_SAMPLES} 张图片)")
+    print(f"Final Test Report (Total {NUM_SAMPLES} images)")
     print("="*40)
     print(f"{'Stage':<20} | {'Avg Confidence':<15}")
     print("-" * 38)
@@ -236,7 +236,7 @@ def main():
     print(f"{'Distorted (Input)':<20} | {avg_bad:.4f}")
     print(f"{'Restored (Output)':<20} | {avg_restored:.4f}")
     print("="*40)
-    print(f"所有结果图已保存在: {OUTPUT_DIR}")
+    print(f"All result images saved in: {OUTPUT_DIR}")
 
 if __name__ == '__main__':
     main()

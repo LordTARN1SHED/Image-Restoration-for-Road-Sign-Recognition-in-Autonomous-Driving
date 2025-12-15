@@ -5,25 +5,25 @@ import os
 import random
 from pathlib import Path
 
-# 配置
+# Configuration
 TASKS = ['Noise', 'Blur', 'Fog']
 CLEAN_DIR = Path('./data/gtsrb/GTSRB/Training')
 
 def show_comparison():
-    # 随机选一张图 (比如找个特定文件夹)
-    # 随便找个存在的路径
+    # Randomly select an image (e.g., find a specific folder)
+    # Find any existing path
     all_files = list(CLEAN_DIR.glob('*/*.ppm'))
     if not all_files: return
     
-    # 随机抽一张
+    # Randomly pick one
     target_file = random.choice(all_files)
     rel_path = target_file.relative_to(CLEAN_DIR)
     
-    print(f"正在可视化文件: {rel_path}")
+    print(f"Visualizing file: {rel_path}")
     
     plt.figure(figsize=(15, 10))
     
-    # 第一列：原图
+    # First column: Original image
     clean_img = cv2.imread(str(target_file))
     clean_img = cv2.cvtColor(clean_img, cv2.COLOR_BGR2RGB)
     
@@ -32,22 +32,22 @@ def show_comparison():
     plt.imshow(clean_img)
     plt.axis('off')
     
-    # 遍历三个任务
+    # Iterate through three tasks
     for idx, task in enumerate(TASKS):
-        # 坏图路径
+        # Distorted image path
         bad_path = Path(f'./data/processed/{task}') / rel_path
-        # 某些生成脚本可能存为png
+        # Some generation scripts might save as png
         if not bad_path.exists(): bad_path = bad_path.with_suffix('.png')
         
-        # 修复图路径
+        # Restored image path
         restored_path = Path(f'./data/restored/{task}') / rel_path
-        restored_path = restored_path.with_suffix('.png') # 修复脚本统一存png
+        restored_path = restored_path.with_suffix('.png') # Restoration script unifies saving as png
         
         if bad_path.exists():
             bad_img = cv2.imread(str(bad_path))
             bad_img = cv2.cvtColor(bad_img, cv2.COLOR_BGR2RGB)
             
-            plt.subplot(3, 3, 4 + idx) # 第二行
+            plt.subplot(3, 3, 4 + idx) # Second row
             plt.title(f"{task} (Distorted)")
             plt.imshow(bad_img)
             plt.axis('off')
@@ -56,14 +56,14 @@ def show_comparison():
             res_img = cv2.imread(str(restored_path))
             res_img = cv2.cvtColor(res_img, cv2.COLOR_BGR2RGB)
             
-            plt.subplot(3, 3, 7 + idx) # 第三行
+            plt.subplot(3, 3, 7 + idx) # Third row
             plt.title(f"{task} (Restored)")
             plt.imshow(res_img)
             plt.axis('off')
             
     plt.tight_layout()
     plt.savefig('result_visualization.png')
-    print("对比图已保存为 result_visualization.png")
+    print("Comparison plot saved as result_visualization.png")
     plt.show()
 
 if __name__ == '__main__':

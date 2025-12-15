@@ -9,30 +9,30 @@ import os
 from tqdm import tqdm
 from pathlib import Path
 
-# ================= 配置区域 =================
-# 专门为了解决 Blur 掉分问题，我们这次只跑 Blur
+# ================= Configuration Area =================
+# Specifically to address the drop in Blur scores, we only run Blur this time
 TASK_NAME = 'Blur'  
 
-# 参数设置
+# Parameter Settings
 BATCH_SIZE = 32
 EPOCHS = 15
-LEARNING_RATE = 0.0002 # 降低一点学习率，因为Loss变复杂了
+LEARNING_RATE = 0.0002 # Lower the learning rate slightly because the Loss has become more complex
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 权重设置 (感知损失的权重)
-LAMBDA_PERCEPTUAL = 0.1  # 0.1 是经典经验值
+# Weight Settings (Weight for Perceptual Loss)
+LAMBDA_PERCEPTUAL = 0.1  # 0.1 is a classic empirical value
 
-# 路径配置
+# Path Configuration
 CLEAN_DIR = Path('./data/gtsrb/GTSRB/Training')
 DISTORTED_DIR = Path(f'./data/processed/{TASK_NAME}')
 SAVE_MODEL_PATH = f'./restoration_{TASK_NAME.lower()}.pth'
-# ===========================================
+# ===================================================
 
-print(f"=== 高级训练模式 (Perceptual Loss) ===")
-print(f"当前任务: {TASK_NAME}")
-print(f"目标: 强制生成锐利边缘以提升 VGG 识别率")
+print(f"=== Advanced Training Mode (Perceptual Loss) ===")
+print(f"Current Task: {TASK_NAME}")
+print(f"Goal: Force generation of sharp edges to improve VGG recognition rate")
 
-# 1. 定义成对数据集 (保持不变)
+# 1. Define Paired Dataset (Keep unchanged)
 class PairedDataset(Dataset):
     def __init__(self, clean_root, distorted_root, transform=None):
         self.clean_root = clean_root
@@ -47,7 +47,7 @@ class PairedDataset(Dataset):
                 d_path = d_path.with_suffix('.png')
             if d_path.exists():
                 self.data_pairs.append((d_path, c_path))
-        print(f"成功匹配图片对: {len(self.data_pairs)} 张")
+        print(f"Successfully matched image pairs: {len(self.data_pairs)}")
 
     def __len__(self):
         return len(self.data_pairs)
@@ -61,7 +61,7 @@ class PairedDataset(Dataset):
             clean_img = self.transform(clean_img)
         return bad_img, clean_img
 
-# 2. 定义修复网络 (保持不变)
+# 2. Define Restoration Network (Keep unchanged)
 class SimpleUNet(nn.Module):
     def __init__(self):
         super(SimpleUNet, self).__init__()
@@ -91,26 +91,26 @@ class SimpleUNet(nn.Module):
         out = self.final(d1)
         return out
 
-# ================= 新增：定义感知损失 (Perceptual Loss) =================
+# ================= New: Define Perceptual Loss =================
 class VGGPerceptualLoss(nn.Module):
     def __init__(self):
         super(VGGPerceptualLoss, self).__init__()
-        # 加载 VGG16 的特征提取部分
+        # Load VGG16 feature extraction part
         vgg = models.vgg16(weights='DEFAULT').features
-        # 我们只取前 16 层 (包含了前几个卷积块，足以提取纹理和边缘特征)
+        # We only take the first 16 layers (contains the first few conv blocks, enough to extract textures and edge features)
         self.slice = nn.Sequential()
         for x in range(16):
             self.slice.add_module(str(x), vgg[x])
         
-        # 冻结参数，不参与训练
+        # Freeze parameters, do not participate in training
         self.slice.eval()
         for param in self.slice.parameters():
             param.requires_grad = False
 
     def forward(self, x, y):
-        # 计算生成图和原图在 VGG 特征空间的距离
+        # Calculate the distance between the generated image and the original image in VGG feature space
         return torch.mean((self.slice(x) - self.slice(y)) ** 2)
-# ======================================================================
+# ===============================================================
 
 def train_model():
     transform = transforms.Compose([
@@ -128,13 +128,13 @@ def train_model():
     
     model = SimpleUNet().to(DEVICE)
     
-    # === 修改核心：定义两个 Loss ===
-    criterion_pixel = nn.L1Loss() # 使用 L1 而不是 MSE，L1 产生的图像更清晰
+    # === Core Modification: Define two Losses ===
+    criterion_pixel = nn.L1Loss() # Use L1 instead of MSE; L1 produces sharper images
     criterion_perceptual = VGGPerceptualLoss().to(DEVICE)
     
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     
-    print("开始训练...")
+    print("Starting training...")
     
     for epoch in range(EPOCHS):
         model.train()
@@ -146,11 +146,11 @@ def train_model():
             optimizer.zero_grad()
             outputs = model(bad_imgs)
             
-            # === 计算组合 Loss ===
+            # === Calculate Combined Loss ===
             loss_pixel = criterion_pixel(outputs, clean_imgs)
             loss_perceptual = criterion_perceptual(outputs, clean_imgs)
             
-            # 总 Loss = 像素差异 + 0.1 * VGG特征差异
+            # Total Loss = Pixel Difference + 0.1 * VGG Feature Difference
             loss = loss_pixel + LAMBDA_PERCEPTUAL * loss_perceptual
             
             loss.backward()
@@ -161,14 +161,14 @@ def train_model():
         avg_loss = running_loss / len(train_loader)
         print(f"Epoch {epoch+1} Train Loss: {avg_loss:.6f}")
         
-        # 验证
+        # Validation
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for bad_imgs, clean_imgs in val_loader:
                 bad_imgs, clean_imgs = bad_imgs.to(DEVICE), clean_imgs.to(DEVICE)
                 outputs = model(bad_imgs)
-                # 验证时也可以看总Loss
+                # Can also look at total Loss during validation
                 l_pix = criterion_pixel(outputs, clean_imgs)
                 l_perc = criterion_perceptual(outputs, clean_imgs)
                 val_loss += (l_pix + LAMBDA_PERCEPTUAL * l_perc).item()
@@ -179,7 +179,7 @@ def train_model():
             torch.save(model.state_dict(), SAVE_MODEL_PATH)
 
     torch.save(model.state_dict(), SAVE_MODEL_PATH)
-    print(f"训练结束！高级模型已保存为 {SAVE_MODEL_PATH}")
+    print(f"Training finished! Advanced model saved as {SAVE_MODEL_PATH}")
 
 if __name__ == '__main__':
     train_model()

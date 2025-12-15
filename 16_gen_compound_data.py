@@ -6,19 +6,19 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 
-# ================= 配置 =================
+# ================= Configuration =================
 SRC_DIR = Path('./data/gtsrb/GTSRB/Training')
 DST_DIR = Path('./data/processed/Compound')
-# =======================================
+# ===============================================
 
 def apply_compound_distortion(image):
     """
-    叠加顺序: Blur -> Fog -> Noise
-    这是最符合物理逻辑且难度最高的顺序
+    Superposition order: Blur -> Fog -> Noise
+    This is the order most consistent with physical logic and highest difficulty
     """
     img = image.astype(np.float32) / 255.0
     
-    # 1. Blur (需要转uint8处理)
+    # 1. Blur (Needs conversion to uint8 for processing)
     temp_img = (img * 255).astype(np.uint8)
     degree = 10; angle = 45
     M = cv2.getRotationMatrix2D((degree/2, degree/2), angle, 1)
@@ -38,26 +38,26 @@ def apply_compound_distortion(image):
 
 def process():
     img_paths = list(SRC_DIR.glob('*/*.ppm'))
-    print(f"开始生成全量混合畸变数据 (Blur+Fog+Noise)... 总数: {len(img_paths)}")
+    print(f"Starting generation of full compound distortion data (Blur+Fog+Noise)... Total: {len(img_paths)}")
 
     for img_path in tqdm(img_paths):
         img = cv2.imread(str(img_path))
         if img is None: continue
 
-        # 生成坏图
+        # Generate bad image
         bad_img = apply_compound_distortion(img)
 
-        # 保持目录结构
+        # Maintain directory structure
         relative_path = img_path.relative_to(SRC_DIR)
         save_path = DST_DIR / relative_path
         
-        # 兼容: 统一存为png，防止压缩损失
+        # Compatibility: Unify saving as png to prevent compression loss
         save_path = save_path.with_suffix('.png')
         
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(save_path), bad_img)
 
-    print(f"生成完成！请检查: {DST_DIR}")
+    print(f"Generation complete! Please check: {DST_DIR}")
 
 if __name__ == '__main__':
     process()

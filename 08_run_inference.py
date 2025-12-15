@@ -10,12 +10,12 @@ from skimage.metrics import structural_similarity as ssim_metric
 from torchvision import transforms
 from PIL import Image
 
-# 引入你的模型定义 (复用 07 的类，或者直接复制过来)
-# 这里假设你把 SimpleUNet 放在同一个文件里，或者直接粘贴在这里
+# Import your model definition (Reuse class from 07, or copy here)
+# Assuming SimpleUNet is in the same file or pasted here
 import torch.nn as nn
 
 # ==========================================
-# 必须和 07_train_restoration.py 里的模型定义一模一样
+# Must be exactly the same as the model definition in 07_train_restoration.py
 class SimpleUNet(nn.Module):
     def __init__(self):
         super(SimpleUNet, self).__init__()
@@ -49,92 +49,92 @@ class SimpleUNet(nn.Module):
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CLEAN_DIR = Path('./data/gtsrb/GTSRB/Training')
 
-# 任务配置
+# Task Configuration
 TASKS = ['Noise', 'Blur', 'Fog'] 
 
 def process_task(task_name):
-    print(f"\n=== 开始处理任务: {task_name} ===")
+    print(f"\n=== Starting task processing: {task_name} ===")
     
-    # 1. 路径设置
+    # 1. Path Settings
     distorted_dir = Path(f'./data/processed/{task_name}')
-    restored_dir = Path(f'./data/restored/{task_name}') # 输出目录
+    restored_dir = Path(f'./data/restored/{task_name}') # Output directory
     model_path = f'./restoration_{task_name.lower()}.pth'
     
     if not os.path.exists(model_path):
-        print(f"警告: 找不到模型 {model_path}，跳过该任务。")
+        print(f"Warning: Model {model_path} not found, skipping this task.")
         return
 
-    # 2. 加载模型
+    # 2. Load Model
     model = SimpleUNet().to(DEVICE)
     model.load_state_dict(torch.load(model_path))
     model.eval()
     
-    # 3. 准备数据预处理
+    # 3. Prepare Data Preprocessing
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
     ])
     
-    # 统计指标
+    # Metrics Statistics
     total_psnr = 0.0
     total_ssim = 0.0
     count = 0
     
-    # 4. 遍历所有文件
+    # 4. Iterate through all files
     files = list(distorted_dir.glob('*/*.ppm')) + list(distorted_dir.glob('*/*.png'))
     
     for file_path in tqdm(files):
-        # 读取坏图
+        # Read distorted image
         img_pil = Image.open(file_path).convert('RGB')
         input_tensor = transform(img_pil).unsqueeze(0).to(DEVICE)
         
-        # 推理 (Inference)
+        # Inference
         with torch.no_grad():
             output_tensor = model(input_tensor)
             
-        # 后处理：转回 0-255 的图片格式
+        # Post-processing: Convert back to 0-255 image format
         output_tensor = torch.clamp(output_tensor, 0, 1)
         output_img = output_tensor.squeeze().cpu().permute(1, 2, 0).numpy()
         output_img = (output_img * 255).astype(np.uint8)
         # RGB -> BGR for OpenCV saving
         output_bgr = cv2.cvtColor(output_img, cv2.COLOR_RGB2BGR)
         
-        # 保存图片 (保持原有目录结构，这对于ImageFolder很重要)
+        # Save image (Maintain original directory structure, important for ImageFolder)
         rel_path = file_path.relative_to(distorted_dir)
         save_path = restored_dir / rel_path
         save_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 注意：这里我们统一存为 png 以避免压缩损耗
+        # Note: We save as png to avoid compression loss
         save_path = save_path.with_suffix('.png')
         cv2.imwrite(str(save_path), output_bgr)
         
-        # --- 计算 PSNR/SSIM (为了 Proposal 中的 Image Quality Evaluation) ---
-        # 必须加载对应的原图做对比
+        # --- Calculate PSNR/SSIM (For Image Quality Evaluation in Proposal) ---
+        # Must load corresponding original image for comparison
         clean_path = CLEAN_DIR / rel_path
-        # 原图可能是ppm，兼容一下
+        # Original might be ppm, compatibility check
         if not clean_path.exists(): clean_path = clean_path.with_suffix('.ppm')
         
         if clean_path.exists():
             clean_img = cv2.imread(str(clean_path))
-            clean_img = cv2.resize(clean_img, (224, 224)) # 确保尺寸一致
+            clean_img = cv2.resize(clean_img, (224, 224)) # Ensure consistent size
             
-            # 计算指标
+            # Calculate Metrics
             # PSNR
             psnr_val = psnr_metric(clean_img, output_bgr, data_range=255)
-            # SSIM (需要灰度或者多通道设置)
+            # SSIM (Requires grayscale or multi-channel setting)
             ssim_val = ssim_metric(clean_img, output_bgr, data_range=255, channel_axis=2)
             
             total_psnr += psnr_val
             total_ssim += ssim_val
             count += 1
             
-    # 打印该任务的平均指标
+    # Print average metrics for this task
     if count > 0:
-        print(f"任务 [{task_name}] 完成。")
-        print(f"平均 PSNR: {total_psnr / count:.2f} dB")
-        print(f"平均 SSIM: {total_ssim / count:.4f}")
+        print(f"Task [{task_name}] completed.")
+        print(f"Average PSNR: {total_psnr / count:.2f} dB")
+        print(f"Average SSIM: {total_ssim / count:.4f}")
     else:
-        print("未处理任何图片。")
+        print("No images processed.")
 
 if __name__ == '__main__':
     for task in TASKS:

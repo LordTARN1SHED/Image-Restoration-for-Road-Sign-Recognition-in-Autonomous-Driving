@@ -11,20 +11,20 @@ DST_DIR = Path('./data/processed/Fog')
 
 def add_fog(image, fog_intensity=0.8):
     """
-    添加雾霾效果 (简单的线性混合)
-    fog_intensity: 0.0 (无雾) 到 1.0 (全白)
+    Add fog effect (simple linear blending)
+    fog_intensity: 0.0 (no fog) to 1.0 (full white)
     """
     image = np.array(image) / 255.0
     
-    # 定义大气光 A (这里设为纯白，稍微带点灰会更真实)
+    # Define atmospheric light A (set to pure white here, slightly gray might be more realistic)
     A = 0.9 
     
-    # 生成透射率 t (这里简化为全局均匀雾，高级做法是用深度图生成不均匀t)
-    # 我们加一点随机性让每张图的雾看起来稍微不同
+    # Generate transmission t (simplified as global uniform fog here; advanced methods use depth maps for non-uniform t)
+    # We add a bit of randomness so the fog looks slightly different for each image
     t = 1.0 - fog_intensity * random.uniform(0.8, 1.2)
-    t = np.clip(t, 0.1, 0.9) # 限制范围防止全黑或全白
+    t = np.clip(t, 0.1, 0.9) # Limit range to prevent full black or white
     
-    # 物理模型: I = J*t + A*(1-t)
+    # Physical model: I = J*t + A*(1-t)
     fog_img = image * t + A * (1 - t)
     
     fog_img = np.clip(fog_img * 255, 0, 255).astype(np.uint8)
@@ -32,13 +32,13 @@ def add_fog(image, fog_intensity=0.8):
 
 def process():
     img_paths = list(SRC_DIR.glob('*/*.ppm'))
-    print(f"发现 {len(img_paths)} 张图片，开始生成雾霾数据...")
+    print(f"Found {len(img_paths)} images, starting to generate fog data...")
 
     for img_path in tqdm(img_paths):
         img = cv2.imread(str(img_path))
         if img is None: continue
 
-        # 添加雾
+        # Add fog
         fog_img = add_fog(img, fog_intensity=0.8) 
 
         relative_path = img_path.relative_to(SRC_DIR)
@@ -46,7 +46,7 @@ def process():
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(save_path), fog_img)
 
-    print(f"处理完成！雾霾数据集保存在: {DST_DIR}")
+    print(f"Processing complete! Fog dataset saved at: {DST_DIR}")
 
 if __name__ == '__main__':
     process()
