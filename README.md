@@ -126,8 +126,56 @@ This proves that our restoration models are not just making images "look nice" t
 In the compound test, the input accuracy was **5.78%**, meaning the signal-to-noise ratio was extremely low. Recovering to **33.03%** represents a massive relative improvement (**~600%**). The model cannot invent information that is completely lost, but it successfully acts as a "Rescue Filter," salvaging whatever semantic structures remain to make the system significantly safer than a blind guess.
 
 ---
+## 6. Usage Guide & Quick Start
 
-## 6. Conclusion
+The project scripts are numbered and designed to be run sequentially.
+
+**⚠️ IMPORTANT NOTE: Missing Judge Model**
+Due to file size limitations, the pre-trained VGG16 Judge Model (`vgg16_baseline.pth`) is **NOT** included in the repository. However, we have provided the 4 pre-trained restoration models (`restoration_noise.pth`, `restoration_blur.pth`, `restoration_fog.pth`, `restoration_unified_resnet.pth`).
+
+**If you want to test our results using the pre-trained restoration models, please follow this specific order:**
+
+### Step 1: Preparation
+1.  **Download Dataset:**
+    Run `python 01_download_data.py` to download and extract the GTSRB dataset.
+2.  **Generate the Judge (Required for Scoring):**
+    Since the judge model is missing, you must generate it locally (this takes ~5-10 mins on a GPU).
+    Run `python 05_train_baseline.py`.
+    *This will save `vgg16_baseline.pth` locally, enabling all subsequent testing scripts.*
+
+### Step 2: Generate Distorted Data
+Run the following scripts to create the testing samples:
+* `python 02_gen_noise.py`
+* `python 03_gen_blur.py`
+* `python 04_gen_fog.py`
+
+### Step 3: Run Restoration (Using Our Pre-trained Models)
+We have provided the trained `.pth` files. You can directly run inference without retraining the U-Nets.
+* `python 08_run_inference.py`
+    * *This uses our `restoration_*.pth` models to repair the images generated in Step 2 and saves them to `data/restored/`.*
+
+### Step 4: Visualize & Test
+* **Visual Comparison:**
+    Run `python 10_visualize_result.py` to see a side-by-side comparison (Original vs. Bad vs. Restored).
+* **Unified Model Stress Test:**
+    Run `python 15_test_unified.py`
+    * *This simulates the "Nightmare Scenario" (Blur+Fog+Noise), runs our Unified ResNet, and uses the VGG model (from Step 1) to display confidence scores.*
+
+---
+
+### Full Script List Reference
+If you wish to retrain everything from scratch, simply run files `01` through `18` in numerical order.
+
+* `01-04`: Data Setup
+* `05-06`: Baseline Training & Testing
+* `07`: Train Specialized U-Nets (Noise/Blur/Fog)
+* `08-10`: Inference & Visualization
+* `11-12`: Hidden State & UMAP Analysis
+* `13`: Pipeline Stress Test
+* `14`: Train Unified ResNet
+* `15-18`: Unified Model Benchmarking
+---
+## 7. Conclusion
 
 This project demonstrates that **Restoration-First** is a viable paradigm for robust autonomous driving perception.
 
